@@ -1,0 +1,23 @@
+[Unit]
+Description=WG-Sniper: WG-Gesucht listing notifier
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/wg-sniper
+EnvironmentFile=/opt/wg-sniper/.env
+ExecStart=/opt/wg-sniper/.venv/bin/python -m wg_sniper
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/wg-sniper
+
+[Install]
+WantedBy=multi-user.target
