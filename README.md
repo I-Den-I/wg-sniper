@@ -125,10 +125,29 @@ Debug flag (set inline for one-off runs):
 - `WG_DEBUG_DUMP=1` — when a WG-Gesucht email yields zero listings, dump its
   HTML and href list into `./debug/` for offline inspection.
 
+## Bot commands
+
+Send these to the bot in Telegram (all restricted to the `TELEGRAM_CHAT_ID` in
+`.env`; anyone else who finds the bot's username gets a polite refusal).
+
+| Command | What it does |
+|---------|--------------|
+| `/start`, `/help` | Greeting and command list |
+| `/ping` | Liveness check + process uptime |
+| `/status` | Last IMAP connect / last email processed / last crash |
+| `/stats` | Total, today, last 7 days, top cities |
+| `/recent [N]` | Re-send last N notified listings (default 5, max 20) |
+| `/mem`, `/cpu` | Server memory and CPU load |
+| `/pause`, `/resume` | Silence notifications without stopping the service |
+| `/lang` | Toggle interface between Ukrainian and English |
+| `/version` | Commit SHA + branch + startup time |
+
 ## Roadmap
 
-- [ ] Ad-page enrichment: fetch price/size/photos from the actual listing page
-      and `edit_message_text` the Telegram post
+- [x] Ad-page enrichment (v2): fetch price/size/district/etc. from the listing
+      page and `edit_message_text` the Telegram post
+- [x] Telegram bot commands with i18n (UA/EN) (v2)
+- [x] Rate-limited send queue and crash notifications (v2)
 - [ ] Kleinanzeigen via RSS (no login, no anti-bot)
 - [ ] ImmoScout24 via email alerts (same channel pattern)
 - [ ] Cross-source deduplication (address + price fuzzy match)

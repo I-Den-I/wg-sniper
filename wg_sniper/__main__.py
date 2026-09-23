@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
+import traceback
 from email.message import Message
 
 import aiosqlite
+import httpx
 
+from . import db as dbmod
+from .commands import build_dispatcher, run_bot
 from .config import load_config
-from .db import init_db, mark_notified, try_insert
+from .i18n import t
 from .imap_listener import run_listener
-from .notifier import make_bot, send_listing
+from .notifier import make_bot, notify_plain, send_and_enrich, Sender
 from .parser import is_relevant_sender, parse_email
+from .state import State
+from .version import git_info
 
 log = logging.getLogger("wg_sniper")
 
@@ -22,8 +29,26 @@ async def _amain() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    await init_db(cfg.db_path)
+    await dbmod.init_db(cfg.db_path)
+
+    state = State(db_path=cfg.db_path)
+    state.git_sha, state.git_branch = git_info()
+    await state.load()
+
     bot = make_bot(cfg.telegram_bot_token)
+    sender = Sender(bot, cfg.telegram_chat_id)
+    dispatcher = build_dispatcher(state, cfg.telegram_chat_id)
+
+    async with aiosqlite.connect(cfg.db_path) as db:
+        await dbmod.log_event(db, "startup", state.git_sha[:12])
+
+    await notify_plain(sender, t("startup_notice", state.lang, sha=state.git_sha[:7]))
+
+    http_client = httpx.AsyncClient(http2=True, timeout=15)
+
+    async def persist_enrichment(listing) -> None:
+        async with aiosqlite.connect(cfg.db_path) as db:
+            await dbmod.mark_enriched(db, listing)
 
     async def on_email(msg: Message) -> None:
         from_hdr = msg.get("From", "")
@@ -36,16 +61,28 @@ async def _amain() -> None:
             return
 
         async with aiosqlite.connect(cfg.db_path) as db:
+            await dbmod.log_event(db, "email_processed",
+                                  f"{len(listings)} listing(s)")
+            new_listings = []
             for listing in listings:
-                is_new = await try_insert(db, listing)
-                if not is_new:
-                    continue
-                log.info("new listing %s: %s (%s €)",
-                         listing.ad_id, listing.title, listing.price_eur)
-                await send_listing(bot, cfg.telegram_chat_id, listing)
-                await mark_notified(db, listing.ad_id)
+                if await dbmod.try_insert(db, listing):
+                    new_listings.append(listing)
 
-    try:
+        for listing in new_listings:
+            log.info("new listing %s: %s", listing.ad_id, listing.title)
+            if state.paused:
+                log.info("skip send (paused): %s", listing.ad_id)
+                continue
+            message_id = await send_and_enrich(
+                sender, http_client, listing, state.lang,
+                on_enriched=persist_enrichment,
+            )
+            async with aiosqlite.connect(cfg.db_path) as db:
+                await dbmod.mark_notified(db, listing.ad_id, message_id)
+
+    async def imap_task() -> None:
+        async with aiosqlite.connect(cfg.db_path) as db:
+            await dbmod.log_event(db, "imap_connect", "start")
         await run_listener(
             host=cfg.imap_host,
             port=cfg.imap_port,
@@ -55,7 +92,24 @@ async def _amain() -> None:
             on_email=on_email,
             sender_filter=cfg.wg_sender_filter,
         )
+
+    try:
+        await asyncio.gather(imap_task(), run_bot(bot, dispatcher))
+    except Exception as exc:
+        err_summary = "".join(traceback.format_exception_only(type(exc), exc)).strip()
+        log.exception("fatal error, notifying and exiting")
+        try:
+            async with aiosqlite.connect(cfg.db_path) as db:
+                await dbmod.log_event(db, "crash", err_summary[:500])
+            await notify_plain(
+                sender,
+                t("crash_notice", state.lang, err=html.escape(err_summary[:200])),
+            )
+        except Exception:
+            log.exception("failed to send crash notice")
+        raise
     finally:
+        await http_client.aclose()
         await bot.session.close()
 
 
