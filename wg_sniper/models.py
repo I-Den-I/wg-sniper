@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)
@@ -11,7 +11,34 @@ class Listing:
     title: str | None = None
     city: str | None = None
     district: str | None = None
+    address: str | None = None
     price_eur: int | None = None
     size_m2: int | None = None
     available_from: str | None = None
+    available_until: str | None = None
+    wg_size: str | None = None
+    deposit_eur: int | None = None
+    description_snippet: str | None = None
     raw_snippet: str | None = None
+
+
+@dataclass(slots=True)
+class Enrichment:
+    price_eur: int | None = None
+    size_m2: int | None = None
+    district: str | None = None
+    address: str | None = None
+    available_from: str | None = None
+    available_until: str | None = None
+    wg_size: str | None = None
+    deposit_eur: int | None = None
+    description_snippet: str | None = None
+
+    def apply_to(self, listing: Listing) -> Listing:
+        for f in ("price_eur", "size_m2", "district", "address",
+                  "available_from", "available_until", "wg_size",
+                  "deposit_eur", "description_snippet"):
+            v = getattr(self, f)
+            if v is not None:
+                setattr(listing, f, v)
+        return listing
