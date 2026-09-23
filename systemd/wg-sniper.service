@@ -5,6 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=wgsniper
+Group=wgsniper
 WorkingDirectory=/opt/wg-sniper
 EnvironmentFile=/opt/wg-sniper/.env
 ExecStart=/opt/wg-sniper/.venv/bin/python -m wg_sniper
