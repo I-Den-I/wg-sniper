@@ -125,6 +125,24 @@ Debug flag (set inline for one-off runs):
 - `WG_DEBUG_DUMP=1` — when a WG-Gesucht email yields zero listings, dump its
   HTML and href list into `./debug/` for offline inspection.
 
+## One-off maintenance scripts
+
+### Re-enrich existing listings
+
+If the enrichment logic changes (e.g. selector fixes), previously-sent
+Telegram messages keep their old, possibly-wrong data. This re-fetches every
+previously-notified ad page, updates the DB, and edits the already-sent
+Telegram message in place (using the stored `tg_message_id`):
+
+```bash
+python -m wg_sniper.reenrich            # applies changes
+python -m wg_sniper.reenrich --dry-run  # log what would change, no writes
+```
+
+Safe to re-run. Polite 2s delay between ad-page fetches. Listings whose
+Telegram message can no longer be edited (e.g. deleted by the user) are
+logged and skipped, not treated as fatal.
+
 ## Bot commands
 
 Send these to the bot in Telegram (all restricted to the `TELEGRAM_CHAT_ID` in
