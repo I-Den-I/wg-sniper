@@ -231,6 +231,33 @@ async def recent_listings(db: aiosqlite.Connection, limit: int = 5) -> list[List
     ]
 
 
+async def listings_with_message_id(db: aiosqlite.Connection) -> list[tuple[Listing, int]]:
+    """All listings that were successfully sent to Telegram (have a
+    tg_message_id), for backfill/re-enrichment tooling."""
+    async with db.execute(
+        """
+        SELECT ad_id, source, url, title, city, district, address, price_eur,
+               rent_eur, utilities_eur, size_m2, available_from, available_until,
+               wg_size, deposit_eur, description_snippet, raw_snippet, tg_message_id
+        FROM listings
+        WHERE tg_message_id IS NOT NULL
+        ORDER BY first_seen_at ASC
+        """
+    ) as cur:
+        rows = await cur.fetchall()
+    result = []
+    for r in rows:
+        listing = Listing(
+            ad_id=r[0], source=r[1], url=r[2], title=r[3], city=r[4],
+            district=r[5], address=r[6], price_eur=r[7], rent_eur=r[8],
+            utilities_eur=r[9], size_m2=r[10], available_from=r[11],
+            available_until=r[12], wg_size=r[13], deposit_eur=r[14],
+            description_snippet=r[15], raw_snippet=r[16],
+        )
+        result.append((listing, r[17]))
+    return result
+
+
 async def last_event(db: aiosqlite.Connection, kind: str) -> tuple[str, str] | None:
     async with db.execute(
         "SELECT created_at, detail FROM runtime_events "
