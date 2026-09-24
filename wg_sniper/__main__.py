@@ -50,6 +50,24 @@ async def _amain() -> None:
         async with aiosqlite.connect(cfg.db_path) as db:
             await dbmod.mark_enriched(db, listing)
 
+    async def _resend_pending() -> None:
+        async with aiosqlite.connect(cfg.db_path) as db:
+            pending = await dbmod.pending_notifications(db)
+        if not pending:
+            return
+        log.info("re-sending %d pending listing(s) from previous run", len(pending))
+        for listing in pending:
+            if state.paused:
+                break
+            message_id = await send_and_enrich(
+                sender, http_client, listing, state.lang,
+                on_enriched=persist_enrichment,
+            )
+            async with aiosqlite.connect(cfg.db_path) as db:
+                await dbmod.mark_notified(db, listing.ad_id, message_id)
+
+    asyncio.create_task(_resend_pending())
+
     async def on_email(msg: Message) -> None:
         from_hdr = msg.get("From", "")
         if not is_relevant_sender(from_hdr, cfg.wg_sender_filter):
@@ -77,6 +95,10 @@ async def _amain() -> None:
                 sender, http_client, listing, state.lang,
                 on_enriched=persist_enrichment,
             )
+            if message_id is None:
+                log.warning("send failed for ad_id=%s — will retry on next startup",
+                            listing.ad_id)
+                continue
             async with aiosqlite.connect(cfg.db_path) as db:
                 await dbmod.mark_notified(db, listing.ad_id, message_id)
 
