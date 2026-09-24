@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from .models import Enrichment
 
@@ -27,13 +27,26 @@ DEFAULT_HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
-NUM_RE = re.compile(r"(\d{1,4}(?:[.,]\d{3})?(?:[.,]\d{1,2})?)")
+INT_RE = re.compile(r"(\d[\d.,]*)")
+WG_SIZE_RE = re.compile(r"\b(\d+)er[  -]*WG\b", re.IGNORECASE)
+ZIP_CITY_RE = re.compile(r"\b\d{5}\s+([\w\-äöüÄÖÜß]+)(?:\s+(.+))?", re.UNICODE)
+
+PRICE_MIN, PRICE_MAX = 50, 5000
+SIZE_MIN, SIZE_MAX = 3, 300
+DEPOSIT_MAX = 25000
+
+
+def _norm_ws(text: str | None) -> str | None:
+    if not text:
+        return None
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    return cleaned or None
 
 
 def _to_int(text: str | None) -> int | None:
     if not text:
         return None
-    m = NUM_RE.search(text.replace(" ", " "))
+    m = INT_RE.search(text.replace(" ", " "))
     if not m:
         return None
     raw = m.group(1).replace(".", "").replace(",", "")
@@ -43,29 +56,103 @@ def _to_int(text: str | None) -> int | None:
         return None
 
 
-def _clean(text: str | None) -> str | None:
-    if not text:
-        return None
-    cleaned = re.sub(r"\s+", " ", text).strip()
-    return cleaned or None
+def _valid_price(n: int | None) -> int | None:
+    return n if n is not None and PRICE_MIN <= n <= PRICE_MAX else None
 
 
-def _find_label_value(soup: BeautifulSoup, labels: tuple[str, ...]) -> str | None:
-    for label in labels:
-        for node in soup.find_all(string=re.compile(rf"\b{re.escape(label)}\b", re.I)):
-            parent = node.parent
+def _valid_size(n: int | None) -> int | None:
+    return n if n is not None and SIZE_MIN <= n <= SIZE_MAX else None
+
+
+def _valid_deposit(n: int | None) -> int | None:
+    return n if n is not None and 0 <= n <= DEPOSIT_MAX else None
+
+
+def _key_facts(soup: BeautifulSoup) -> dict[str, str]:
+    facts: dict[str, str] = {}
+    for label_el in soup.select(".key_fact_detail"):
+        col = label_el.find_parent(class_="col-xs-6")
+        if not col:
+            continue
+        value_el = col.select_one(".key_fact_value")
+        if not value_el:
+            continue
+        label = _norm_ws(label_el.get_text(" ", strip=True))
+        value = _norm_ws(value_el.get_text(" ", strip=True))
+        if label and value:
+            facts[label] = value
+    return facts
+
+
+def _section_pairs(soup: BeautifulSoup) -> dict[str, str]:
+    pairs: dict[str, str] = {}
+    for label_el in soup.select(".section_panel_detail"):
+        row = label_el.find_parent(class_="row")
+        if not row:
+            continue
+        value_el = row.select_one(".section_panel_value")
+        if not value_el:
+            continue
+        raw_label = label_el.get_text(" ", strip=True)
+        label = _norm_ws(raw_label.rstrip(":"))
+        value = _norm_ws(value_el.get_text(" ", strip=True))
+        if not label or not value or value.lower() == "n.a.":
+            continue
+        pairs[label] = value
+    return pairs
+
+
+def _address_block(soup: BeautifulSoup) -> str | None:
+    for h in soup.find_all(["h1", "h2", "h3", "h4"]):
+        if h.get_text(strip=True) == "Adresse":
+            parent = h.find_parent(class_="col-xs-12") or h.parent
             if not parent:
-                continue
-            sibling = parent.find_next_sibling()
-            if sibling:
-                text = _clean(sibling.get_text(" ", strip=True))
-                if text and text.lower() != label.lower():
-                    return text
-            after = parent.get_text(" ", strip=True)
-            if after and label.lower() in after.lower():
-                remainder = re.split(rf"\b{re.escape(label)}\b", after, flags=re.I, maxsplit=1)
-                if len(remainder) == 2 and remainder[1].strip():
-                    return _clean(remainder[1])
+                return None
+            detail = parent.select_one(".section_panel_detail")
+            if not detail:
+                return None
+            return _norm_ws(detail.get_text(" ", strip=True))
+    return None
+
+
+def _district_from_address(address: str | None) -> str | None:
+    if not address:
+        return None
+    m = ZIP_CITY_RE.search(address)
+    if not m:
+        return None
+    district = m.group(2)
+    return _norm_ws(district)
+
+
+def _wg_details_text(soup: BeautifulSoup) -> str:
+    for h in soup.find_all(["h1", "h2", "h3", "h4"]):
+        if "WG-Details" in h.get_text(strip=True):
+            row = h.find_parent(class_="row") or h.parent
+            if isinstance(row, Tag):
+                return row.get_text(" ", strip=True)
+    return ""
+
+
+def _description(soup: BeautifulSoup) -> str | None:
+    candidates = []
+    for el in soup.select("#ad_description_text, .freitext, .section_panel_content"):
+        text = _norm_ws(el.get_text(" ", strip=True))
+        if not text:
+            continue
+        if "googletag" in text.lower() or len(text) < 40:
+            continue
+        candidates.append(text)
+    if not candidates:
+        return None
+    best = max(candidates, key=len)
+    return best[:280] + ("…" if len(best) > 280 else "")
+
+
+def _title(soup: BeautifulSoup) -> str | None:
+    h1 = soup.select_one("h1")
+    if h1:
+        return _norm_ws(h1.get_text(" ", strip=True))
     return None
 
 
@@ -73,65 +160,37 @@ def parse_ad_page(html: str) -> Enrichment:
     soup = BeautifulSoup(html, "lxml")
     e = Enrichment()
 
-    for sel in ("h2.headline-key-facts", "h2.headline-detailed-view-title",
-                "h1.headline", "h2"):
-        node = soup.select_one(sel)
-        if node:
-            _clean(node.get_text(" ", strip=True))
-            break
+    kf = _key_facts(soup)
+    sp = _section_pairs(soup)
 
-    for label, key in (("Gesamtmiete", "price_eur"),
-                       ("Miete", "price_eur"),
-                       ("Kaltmiete", "price_eur"),
-                       ("Warmmiete", "price_eur")):
-        v = _find_label_value(soup, (label,))
-        if v:
-            n = _to_int(v)
-            if n and (getattr(e, key) is None or key == "price_eur"):
-                setattr(e, key, n)
-                if key == "price_eur":
-                    break
-
-    size_txt = _find_label_value(soup, ("Zimmergröße", "Wohnfläche", "Größe"))
-    if size_txt:
-        e.size_m2 = _to_int(size_txt)
-
-    dep_txt = _find_label_value(soup, ("Kaution",))
-    if dep_txt:
-        e.deposit_eur = _to_int(dep_txt)
-
-    e.district = _clean(_find_label_value(soup, ("Stadtteil", "Ortsteil")))
-    e.address = _clean(_find_label_value(soup, ("Adresse", "Straße")))
-    e.available_from = _clean(_find_label_value(soup, ("Frei ab", "Verfügbar ab", "Einzugsdatum")))
-    e.available_until = _clean(_find_label_value(soup, ("Frei bis", "Verfügbar bis")))
-    e.wg_size = _clean(_find_label_value(soup, ("WG-Größe", "WG Größe", "Wohnungsgröße")))
-
-    for sel in ("#ad_description_text", ".freitext", "#description_body",
-                "div[itemprop='description']"):
-        node = soup.select_one(sel)
-        if node:
-            text = _clean(node.get_text(" ", strip=True))
-            if text:
-                e.description_snippet = text[:280] + ("…" if len(text) > 280 else "")
-                break
-
+    e.price_eur = _valid_price(_to_int(kf.get("Gesamtmiete")))
     if e.price_eur is None:
-        body_text = soup.get_text(" ", strip=True)
-        m = re.search(r"(\d{2,4})\s*€", body_text)
-        if m:
-            try:
-                e.price_eur = int(m.group(1))
-            except ValueError:
-                pass
+        miete = _to_int(sp.get("Miete"))
+        neben = _to_int(sp.get("Nebenkosten"))
+        if miete is not None:
+            total = miete + (neben or 0)
+            e.price_eur = _valid_price(total)
 
-    if e.size_m2 is None:
-        body_text = body_text if "body_text" in dir() else soup.get_text(" ", strip=True)
-        m = re.search(r"(\d{1,3})\s*m²", body_text)
+    e.rent_eur = _valid_price(_to_int(sp.get("Miete")))
+    e.utilities_eur = _valid_price(_to_int(sp.get("Nebenkosten")))
+    e.deposit_eur = _valid_deposit(_to_int(sp.get("Kaution")))
+
+    e.size_m2 = _valid_size(_to_int(kf.get("Zimmergröße")))
+
+    e.available_from = _norm_ws(sp.get("frei ab"))
+    e.available_until = _norm_ws(sp.get("frei bis"))
+
+    e.address = _address_block(soup)
+    e.district = _district_from_address(e.address)
+
+    wg_text = _wg_details_text(soup)
+    if wg_text:
+        m = WG_SIZE_RE.search(wg_text)
         if m:
-            try:
-                e.size_m2 = int(m.group(1))
-            except ValueError:
-                pass
+            e.wg_size = f"{m.group(1)}er WG"
+
+    e.title = _title(soup)
+    e.description_snippet = _description(soup)
 
     return e
 

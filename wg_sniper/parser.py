@@ -134,6 +134,15 @@ def parse_email(msg: Message) -> list[Listing]:
         seen_ids.add(ad_id)
         ordered_ads.append((ad_id, m.group("slug")))
 
+    if ordered_ads and len(titles_in_order) != len(ordered_ads):
+        log.warning(
+            "parser mismatch: %d ad_id(s) vs %d title(s) in email %r — "
+            "pairing may be off. Set WG_DEBUG_DUMP=1 to save the raw HTML.",
+            len(ordered_ads), len(titles_in_order), subject[:120],
+        )
+        if os.environ.get("WG_DEBUG_DUMP") == "1":
+            _dump_debug(msg, html, all_hrefs)
+
     listings: list[Listing] = []
     for i, (ad_id, slug) in enumerate(ordered_ads):
         url = (

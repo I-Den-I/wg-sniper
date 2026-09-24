@@ -28,14 +28,16 @@ def make_bot(token: str) -> Bot:
 
 
 LABELS: dict[str, dict[Lang, str]] = {
-    "price":   {"uk": "Ціна",    "en": "Price"},
-    "size":    {"uk": "Площа",   "en": "Size"},
-    "district":{"uk": "Район",   "en": "District"},
-    "address": {"uk": "Адреса",  "en": "Address"},
-    "from":    {"uk": "Заїзд",   "en": "From"},
-    "until":   {"uk": "До",      "en": "Until"},
-    "wg_size": {"uk": "Тип WG",  "en": "WG type"},
-    "deposit": {"uk": "Застава", "en": "Deposit"},
+    "price":   {"uk": "Ціна",       "en": "Price"},
+    "rent":    {"uk": "Оренда",     "en": "Rent"},
+    "utilities": {"uk": "Комунальні", "en": "Utilities"},
+    "size":    {"uk": "Площа",      "en": "Size"},
+    "district":{"uk": "Район",      "en": "District"},
+    "address": {"uk": "Адреса",     "en": "Address"},
+    "from":    {"uk": "Заїзд з",    "en": "From"},
+    "until":   {"uk": "До",         "en": "Until"},
+    "wg_size": {"uk": "WG",         "en": "WG"},
+    "deposit": {"uk": "Застава",    "en": "Deposit"},
     "open":    {"uk": "Оголошення →", "en": "Listing →"},
 }
 
@@ -44,42 +46,58 @@ def _lbl(key: str, lang: Lang) -> str:
     return LABELS[key].get(lang, LABELS[key]["en"])
 
 
+def _has(text: str | None) -> bool:
+    """True if the value is a real non-empty string (not whitespace, not a lone colon)."""
+    if not text:
+        return False
+    stripped = text.strip().strip(":").strip()
+    return bool(stripped)
+
+
 def format_listing(listing: Listing, lang: Lang) -> str:
     title = html.escape(listing.title or "WG-Zimmer")
     lines = [f"<b>🏠 {title}</b>"]
 
     where = []
-    if listing.city:
+    if _has(listing.city):
         where.append(html.escape(listing.city))
-    if listing.district:
+    if _has(listing.district):
         where.append(html.escape(listing.district))
     if where:
         lines.append("📍 " + " · ".join(where))
-    if listing.address:
+    if _has(listing.address):
         lines.append("🏘 " + html.escape(listing.address))
 
     stats = []
     if listing.price_eur is not None:
-        stats.append(f"💶 <b>{listing.price_eur} €</b>")
+        if listing.rent_eur is not None and listing.utilities_eur is not None:
+            stats.append(
+                f"💶 <b>{listing.price_eur} €</b> "
+                f"({listing.rent_eur}+{listing.utilities_eur})"
+            )
+        else:
+            stats.append(f"💶 <b>{listing.price_eur} €</b>")
+    elif listing.rent_eur is not None:
+        stats.append(f"💶 <b>{listing.rent_eur} €</b>")
     if listing.size_m2 is not None:
         stats.append(f"📐 {listing.size_m2} m²")
-    if listing.wg_size:
+    if _has(listing.wg_size):
         stats.append(f"👥 {html.escape(listing.wg_size)}")
     if stats:
         lines.append(" · ".join(stats))
 
     when = []
-    if listing.available_from:
-        when.append(f"{_lbl('from', lang)}: {html.escape(listing.available_from)}")
-    if listing.available_until:
-        when.append(f"{_lbl('until', lang)}: {html.escape(listing.available_until)}")
+    if _has(listing.available_from):
+        when.append(f"{_lbl('from', lang)}: {html.escape(listing.available_from.strip())}")
+    if _has(listing.available_until):
+        when.append(f"{_lbl('until', lang)}: {html.escape(listing.available_until.strip())}")
     if when:
         lines.append("📅 " + " · ".join(when))
 
-    if listing.deposit_eur is not None:
+    if listing.deposit_eur is not None and listing.deposit_eur > 0:
         lines.append(f"🔐 {_lbl('deposit', lang)}: {listing.deposit_eur} €")
 
-    if listing.description_snippet:
+    if _has(listing.description_snippet):
         lines.append("")
         lines.append(f"<i>{html.escape(listing.description_snippet)}</i>")
 

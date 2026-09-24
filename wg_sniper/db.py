@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS listings (
     district            TEXT,
     address             TEXT,
     price_eur           INTEGER,
+    rent_eur            INTEGER,
+    utilities_eur       INTEGER,
     size_m2             INTEGER,
     available_from      TEXT,
     available_until     TEXT,
@@ -54,6 +56,8 @@ MIGRATIONS = [
     "ALTER TABLE listings ADD COLUMN description_snippet TEXT",
     "ALTER TABLE listings ADD COLUMN tg_message_id INTEGER",
     "ALTER TABLE listings ADD COLUMN enriched_at TEXT",
+    "ALTER TABLE listings ADD COLUMN rent_eur INTEGER",
+    "ALTER TABLE listings ADD COLUMN utilities_eur INTEGER",
 ]
 
 
@@ -79,14 +83,15 @@ async def try_insert(db: aiosqlite.Connection, listing: Listing) -> bool:
         """
         INSERT OR IGNORE INTO listings
             (ad_id, source, url, title, city, district, address, price_eur,
-             size_m2, available_from, available_until, wg_size, deposit_eur,
-             description_snippet, first_seen_at, raw_snippet)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             rent_eur, utilities_eur, size_m2, available_from, available_until,
+             wg_size, deposit_eur, description_snippet, first_seen_at, raw_snippet)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             listing.ad_id, listing.source, listing.url, listing.title,
             listing.city, listing.district, listing.address, listing.price_eur,
-            listing.size_m2, listing.available_from, listing.available_until,
+            listing.rent_eur, listing.utilities_eur, listing.size_m2,
+            listing.available_from, listing.available_until,
             listing.wg_size, listing.deposit_eur, listing.description_snippet,
             _now(), listing.raw_snippet,
         ),
@@ -108,19 +113,49 @@ async def mark_enriched(db: aiosqlite.Connection, listing: Listing) -> None:
     await db.execute(
         """
         UPDATE listings
-        SET price_eur = ?, size_m2 = ?, district = ?, address = ?,
+        SET title = COALESCE(?, title),
+            price_eur = ?, rent_eur = ?, utilities_eur = ?,
+            size_m2 = ?, district = ?, address = ?,
             available_from = ?, available_until = ?, wg_size = ?,
             deposit_eur = ?, description_snippet = ?, enriched_at = ?
         WHERE ad_id = ?
         """,
         (
-            listing.price_eur, listing.size_m2, listing.district,
+            listing.title, listing.price_eur, listing.rent_eur,
+            listing.utilities_eur, listing.size_m2, listing.district,
             listing.address, listing.available_from, listing.available_until,
             listing.wg_size, listing.deposit_eur, listing.description_snippet,
             _now(), listing.ad_id,
         ),
     )
     await db.commit()
+
+
+async def pending_notifications(db: aiosqlite.Connection, max_age_hours: int = 24) -> list[Listing]:
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat(timespec="seconds")
+    async with db.execute(
+        """
+        SELECT ad_id, source, url, title, city, district, address, price_eur,
+               rent_eur, utilities_eur, size_m2, available_from, available_until,
+               wg_size, deposit_eur, description_snippet, raw_snippet
+        FROM listings
+        WHERE notified_at IS NULL AND first_seen_at >= ?
+        ORDER BY first_seen_at ASC
+        """,
+        (cutoff,),
+    ) as cur:
+        rows = await cur.fetchall()
+    return [
+        Listing(
+            ad_id=r[0], source=r[1], url=r[2], title=r[3], city=r[4],
+            district=r[5], address=r[6], price_eur=r[7], rent_eur=r[8],
+            utilities_eur=r[9], size_m2=r[10], available_from=r[11],
+            available_until=r[12], wg_size=r[13], deposit_eur=r[14],
+            description_snippet=r[15], raw_snippet=r[16],
+        )
+        for r in rows
+    ]
 
 
 async def get_pref(db: aiosqlite.Connection, key: str, default: str) -> str:
@@ -174,8 +209,8 @@ async def recent_listings(db: aiosqlite.Connection, limit: int = 5) -> list[List
     async with db.execute(
         """
         SELECT ad_id, source, url, title, city, district, address, price_eur,
-               size_m2, available_from, available_until, wg_size, deposit_eur,
-               description_snippet, raw_snippet
+               rent_eur, utilities_eur, size_m2, available_from, available_until,
+               wg_size, deposit_eur, description_snippet, raw_snippet
         FROM listings
         WHERE notified_at IS NOT NULL
         ORDER BY first_seen_at DESC
@@ -187,9 +222,10 @@ async def recent_listings(db: aiosqlite.Connection, limit: int = 5) -> list[List
     return [
         Listing(
             ad_id=r[0], source=r[1], url=r[2], title=r[3], city=r[4],
-            district=r[5], address=r[6], price_eur=r[7], size_m2=r[8],
-            available_from=r[9], available_until=r[10], wg_size=r[11],
-            deposit_eur=r[12], description_snippet=r[13], raw_snippet=r[14],
+            district=r[5], address=r[6], price_eur=r[7], rent_eur=r[8],
+            utilities_eur=r[9], size_m2=r[10], available_from=r[11],
+            available_until=r[12], wg_size=r[13], deposit_eur=r[14],
+            description_snippet=r[15], raw_snippet=r[16],
         )
         for r in rows
     ]
