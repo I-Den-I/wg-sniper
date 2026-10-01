@@ -91,3 +91,12 @@ class TestHtmlEscaping:
         msg = format_listing(listing, "uk")
         assert "<script>" not in msg
         assert "&lt;script&gt;" in msg
+
+
+class TestSourceLabel:
+    def test_wg_gesucht_label(self) -> None:
+        assert "WG-Gesucht" in format_listing(_mk(title="X"), "uk")
+
+    def test_kleinanzeigen_label(self) -> None:
+        listing = _mk(title="X", source="kleinanzeigen", ad_id="ka:1")
+        assert "Kleinanzeigen" in format_listing(listing, "en")

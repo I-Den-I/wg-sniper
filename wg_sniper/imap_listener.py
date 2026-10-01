@@ -17,10 +17,21 @@ RECONNECT_DELAY = 30
 
 
 async def _process_unseen(client: aioimaplib.IMAP4_SSL, on_email: EmailCallback,
-                          sender_filter: str) -> None:
-    search_key = f'(UNSEEN FROM "{sender_filter}")'
+                          searches: tuple[tuple[str, str], ...]) -> None:
+    for sender, subject in searches:
+        await _process_unseen_from(client, on_email, sender, subject)
+
+
+async def _process_unseen_from(client: aioimaplib.IMAP4_SSL, on_email: EmailCallback,
+                               sender_filter: str, subject: str) -> None:
+    # SUBJECT keeps unrelated mail from the same sender (landlord replies,
+    # account notices) out of the fetch, so it is never marked as read.
+    search_key = f'(UNSEEN FROM "{sender_filter}" SUBJECT "{subject}")'
     status, data = await client.search(search_key)
-    if status != "OK" or not data or not data[0]:
+    if status != "OK":
+        log.warning("IMAP search %s failed: %s %r", search_key, status, data)
+        return
+    if not data or not data[0]:
         return
     ids = data[0].split()
     if not ids:
@@ -47,7 +58,7 @@ async def _process_unseen(client: aioimaplib.IMAP4_SSL, on_email: EmailCallback,
 
 
 async def _one_session(host: str, port: int, user: str, password: str,
-                       folder: str, on_email: EmailCallback, sender_filter: str) -> None:
+                       folder: str, on_email: EmailCallback, searches: tuple[tuple[str, str], ...]) -> None:
     client = aioimaplib.IMAP4_SSL(host=host, port=port, timeout=60)
     await client.wait_hello_from_server()
     await client.login(user, password)
@@ -55,7 +66,7 @@ async def _one_session(host: str, port: int, user: str, password: str,
         await client.select(folder)
         log.info("connected to %s as %s, folder=%s", host, user, folder)
 
-        await _process_unseen(client, on_email, sender_filter)
+        await _process_unseen(client, on_email, searches)
 
         while True:
             idle = await client.idle_start(timeout=IDLE_TIMEOUT)
@@ -68,7 +79,7 @@ async def _one_session(host: str, port: int, user: str, password: str,
                 await asyncio.wait_for(idle, timeout=10)
             except asyncio.TimeoutError:
                 log.warning("idle task did not complete cleanly")
-            await _process_unseen(client, on_email, sender_filter)
+            await _process_unseen(client, on_email, searches)
     finally:
         try:
             await client.logout()
@@ -77,10 +88,10 @@ async def _one_session(host: str, port: int, user: str, password: str,
 
 
 async def run_listener(host: str, port: int, user: str, password: str,
-                       folder: str, on_email: EmailCallback, sender_filter: str) -> None:
+                       folder: str, on_email: EmailCallback, searches: tuple[tuple[str, str], ...]) -> None:
     while True:
         try:
-            await _one_session(host, port, user, password, folder, on_email, sender_filter)
+            await _one_session(host, port, user, password, folder, on_email, searches)
         except asyncio.CancelledError:
             raise
         except Exception:

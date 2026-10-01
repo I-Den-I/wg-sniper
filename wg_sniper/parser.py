@@ -179,9 +179,3 @@ def _dump_debug(msg: Message, html: str, hrefs: list[str]) -> None:
         msg.get("Subject", ""),
         wg_hrefs[:3],
     )
-
-
-def is_relevant_sender(from_header: str | None, sender_filter: str) -> bool:
-    if not from_header:
-        return False
-    return sender_filter.lower() in from_header.lower()
