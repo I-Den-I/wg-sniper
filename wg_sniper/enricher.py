@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 from bs4 import BeautifulSoup, Tag
 
-from .models import Enrichment
+from .models import Enrichment, Listing
 
 log = logging.getLogger(__name__)
 
@@ -210,17 +210,23 @@ async def fetch_ad(client: httpx.AsyncClient, url: str) -> str | None:
     return resp.text
 
 
-async def enrich(client: httpx.AsyncClient, ad_id: str, url: str) -> Enrichment | None:
-    html = await fetch_ad(client, url)
+async def enrich(client: httpx.AsyncClient, listing: Listing) -> Enrichment | None:
+    from .sources import by_name  # sources imports this module
+
+    source = by_name(listing.source)
+    if source is None:
+        log.warning("no ad-page parser for source %r", listing.source)
+        return None
+    html = await fetch_ad(client, listing.url)
     if not html:
         return None
     try:
-        result = parse_ad_page(html)
+        result = source.parse_ad_page(html)
     except Exception:
-        log.exception("enrich parse failed for ad_id=%s", ad_id)
+        log.exception("enrich parse failed for ad_id=%s", listing.ad_id)
         return None
     if os.environ.get("WG_ENRICH_DUMP") == "1" and result.price_eur is None:
-        _dump(url, 200, html)
+        _dump(listing.url, 200, html)
     return result
 
 

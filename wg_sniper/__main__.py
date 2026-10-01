@@ -15,7 +15,7 @@ from .config import load_config
 from .i18n import t
 from .imap_listener import run_listener
 from .notifier import make_bot, notify_plain, send_and_enrich, Sender
-from .parser import is_relevant_sender, parse_email
+from . import sources
 from .state import State
 from .version import git_info
 
@@ -69,11 +69,11 @@ async def _amain() -> None:
     asyncio.create_task(_resend_pending())
 
     async def on_email(msg: Message) -> None:
-        from_hdr = msg.get("From", "")
-        if not is_relevant_sender(from_hdr, cfg.wg_sender_filter):
+        source = sources.for_sender(msg.get("From", ""))
+        if source is None:
             return
 
-        listings = parse_email(msg)
+        listings = source.parse_email(msg)
         if not listings:
             log.info("no listings extracted from message: %s", msg.get("Subject", ""))
             return
@@ -112,7 +112,7 @@ async def _amain() -> None:
             password=cfg.imap_password,
             folder=cfg.imap_folder,
             on_email=on_email,
-            sender_filter=cfg.wg_sender_filter,
+            searches=sources.SEARCHES,
         )
 
     try:

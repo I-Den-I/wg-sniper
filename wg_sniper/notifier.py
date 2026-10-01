@@ -14,6 +14,7 @@ from aiogram.exceptions import TelegramRetryAfter
 from .enricher import enrich
 from .i18n import Lang, t
 from .models import Listing
+from .sources import label_for
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +102,10 @@ def format_listing(listing: Listing, lang: Lang) -> str:
         lines.append("")
         lines.append(f"<i>{html.escape(listing.description_snippet)}</i>")
 
-    lines.append(f'\n<a href="{html.escape(listing.url)}">{_lbl("open", lang)}</a>')
+    lines.append(
+        f'\n<a href="{html.escape(listing.url)}">{_lbl("open", lang)}</a>'
+        f' · {html.escape(label_for(listing.source))}'
+    )
     return "\n".join(lines)
 
 
@@ -167,7 +171,7 @@ async def send_and_enrich(
     if message_id is None:
         return None
 
-    enrichment = await enrich(http_client, listing.ad_id, listing.url)
+    enrichment = await enrich(http_client, listing)
     if enrichment is None:
         return message_id
 

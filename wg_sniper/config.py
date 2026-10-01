@@ -18,7 +18,6 @@ class Config:
     telegram_chat_id: int
     db_path: Path
     log_level: str
-    wg_sender_filter: str
 
 
 def _require(name: str) -> str:
@@ -40,5 +39,4 @@ def load_config() -> Config:
         telegram_chat_id=int(_require("TELEGRAM_CHAT_ID")),
         db_path=Path(os.environ.get("DB_PATH", "./wg_sniper.db")),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
-        wg_sender_filter=os.environ.get("WG_SENDER_FILTER", "wg-gesucht.de"),
     )

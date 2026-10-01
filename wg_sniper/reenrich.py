@@ -55,7 +55,7 @@ async def _amain(dry_run: bool) -> None:
             if i > 0:
                 await asyncio.sleep(DELAY_BETWEEN_FETCHES_SEC)
 
-            enrichment = await enrich(http_client, listing.ad_id, listing.url)
+            enrichment = await enrich(http_client, listing)
             if enrichment is None:
                 log.warning("skip ad_id=%s: fetch/parse failed", listing.ad_id)
                 failed += 1

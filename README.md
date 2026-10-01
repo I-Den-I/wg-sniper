@@ -1,6 +1,7 @@
 # wg-sniper
 
-Real-time notifier for new WG-Gesucht room listings, pushed to Telegram.
+Real-time notifier for new room listings from WG-Gesucht and Kleinanzeigen,
+pushed to Telegram.
 
 The Munich-area WG market moves in minutes — landlords are flooded with
 applicants within an hour of posting. `wg-sniper` shortens the loop between
@@ -118,12 +119,24 @@ All settings via `.env` (loaded by `python-dotenv`); see `.env.example`.
 | `TELEGRAM_CHAT_ID`  | *required*          | Your personal chat id (integer)           |
 | `DB_PATH`           | `./wg_sniper.db`    |                                           |
 | `LOG_LEVEL`         | `INFO`              |                                           |
-| `WG_SENDER_FILTER`  | `wg-gesucht.de`     | Substring; applied at IMAP SEARCH level   |
 
 Debug flag (set inline for one-off runs):
 
 - `WG_DEBUG_DUMP=1` — when a WG-Gesucht email yields zero listings, dump its
   HTML and href list into `./debug/` for offline inspection.
+
+## Sources
+
+Each source is an entry in `wg_sniper/sources.py`: sender domain, a subject
+hint, an email parser and an ad-page parser. The IMAP search is
+`UNSEEN FROM "<sender>" SUBJECT "<hint>"` per source, so other mail from the
+same sender (landlord replies, account notices) is never fetched or marked
+as read.
+
+| Source | Alert setup | Notes |
+|--------|-------------|-------|
+| WG-Gesucht | Filter und Suchaufträge, "Neue Angebote per E-Mail" | Email has titles only; price comes from the ad page |
+| Kleinanzeigen | "Suche speichern" with Mitteilungen enabled | Email has title + price; ad ids are stored as `ka:<id>` |
 
 ## One-off maintenance scripts
 
@@ -166,7 +179,7 @@ Send these to the bot in Telegram (all restricted to the `TELEGRAM_CHAT_ID` in
       page and `edit_message_text` the Telegram post
 - [x] Telegram bot commands with i18n (UA/EN) (v2)
 - [x] Rate-limited send queue and crash notifications (v2)
-- [ ] Kleinanzeigen via RSS (no login, no anti-bot)
+- [x] Kleinanzeigen via saved-search email alerts (v3)
 - [ ] ImmoScout24 via email alerts (same channel pattern)
 - [ ] Cross-source deduplication (address + price fuzzy match)
 - [ ] Direct WG-Gesucht poll for lower latency (Cloudflare-aware, Camoufox)

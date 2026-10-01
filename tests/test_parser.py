@@ -8,7 +8,6 @@ import pytest
 from wg_sniper.parser import (
     AD_URL_RE,
     _unwrap_tracking,
-    is_relevant_sender,
     parse_email,
 )
 
@@ -61,18 +60,6 @@ class TestTrackingUnwrap:
     def test_unwraps_redirect_param(self) -> None:
         wrapped = "https://tracker.example/click?url=https%3A%2F%2Fwww.wg-gesucht.de%2F14138656.html"
         assert "wg-gesucht.de/14138656.html" in _unwrap_tracking(wrapped)
-
-
-class TestSenderFilter:
-    def test_matches_wg_gesucht(self) -> None:
-        assert is_relevant_sender("WG-Gesucht.de <webmaster@wg-gesucht.de>", "wg-gesucht.de")
-
-    def test_rejects_other(self) -> None:
-        assert not is_relevant_sender("random@example.com", "wg-gesucht.de")
-
-    def test_empty_header(self) -> None:
-        assert not is_relevant_sender(None, "wg-gesucht.de")
-        assert not is_relevant_sender("", "wg-gesucht.de")
 
 
 class TestRealFixtures:
