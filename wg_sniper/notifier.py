@@ -12,7 +12,6 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramRetryAfter
 
 from .enricher import enrich
-from .i18n import Lang, t
 from .models import Listing
 from .sources import label_for
 
@@ -28,23 +27,16 @@ def make_bot(token: str) -> Bot:
     )
 
 
-LABELS: dict[str, dict[Lang, str]] = {
-    "price":   {"uk": "Ціна",       "en": "Price"},
-    "rent":    {"uk": "Оренда",     "en": "Rent"},
-    "utilities": {"uk": "Комунальні", "en": "Utilities"},
-    "size":    {"uk": "Площа",      "en": "Size"},
-    "district":{"uk": "Район",      "en": "District"},
-    "address": {"uk": "Адреса",     "en": "Address"},
-    "from":    {"uk": "Заїзд з",    "en": "From"},
-    "until":   {"uk": "До",         "en": "Until"},
-    "wg_size": {"uk": "WG",         "en": "WG"},
-    "deposit": {"uk": "Застава",    "en": "Deposit"},
-    "open":    {"uk": "Оголошення →", "en": "Listing →"},
+LABELS: dict[str, str] = {
+    "from": "From",
+    "until": "Until",
+    "deposit": "Deposit",
+    "open": "Listing →",
 }
 
 
-def _lbl(key: str, lang: Lang) -> str:
-    return LABELS[key].get(lang, LABELS[key]["en"])
+def _lbl(key: str) -> str:
+    return LABELS[key]
 
 
 def _has(text: str | None) -> bool:
@@ -55,7 +47,7 @@ def _has(text: str | None) -> bool:
     return bool(stripped)
 
 
-def format_listing(listing: Listing, lang: Lang) -> str:
+def format_listing(listing: Listing) -> str:
     title = html.escape(listing.title or "WG-Zimmer")
     lines = [f"<b>🏠 {title}</b>"]
 
@@ -89,21 +81,21 @@ def format_listing(listing: Listing, lang: Lang) -> str:
 
     when = []
     if _has(listing.available_from):
-        when.append(f"{_lbl('from', lang)}: {html.escape(listing.available_from.strip())}")
+        when.append(f"{_lbl('from')}: {html.escape(listing.available_from.strip())}")
     if _has(listing.available_until):
-        when.append(f"{_lbl('until', lang)}: {html.escape(listing.available_until.strip())}")
+        when.append(f"{_lbl('until')}: {html.escape(listing.available_until.strip())}")
     if when:
         lines.append("📅 " + " · ".join(when))
 
     if listing.deposit_eur is not None and listing.deposit_eur > 0:
-        lines.append(f"🔐 {_lbl('deposit', lang)}: {listing.deposit_eur} €")
+        lines.append(f"🔐 {_lbl('deposit')}: {listing.deposit_eur} €")
 
     if _has(listing.description_snippet):
         lines.append("")
         lines.append(f"<i>{html.escape(listing.description_snippet)}</i>")
 
     lines.append(
-        f'\n<a href="{html.escape(listing.url)}">{_lbl("open", lang)}</a>'
+        f'\n<a href="{html.escape(listing.url)}">{_lbl("open")}</a>'
         f' · {html.escape(label_for(listing.source))}'
     )
     return "\n".join(lines)
@@ -163,10 +155,9 @@ async def send_and_enrich(
     sender: Sender,
     http_client: httpx.AsyncClient,
     listing: Listing,
-    lang: Lang,
     on_enriched=None,
 ) -> int | None:
-    text = format_listing(listing, lang)
+    text = format_listing(listing)
     message_id = await sender.send(text)
     if message_id is None:
         return None
@@ -182,7 +173,7 @@ async def send_and_enrich(
         except Exception:
             log.exception("on_enriched callback failed")
 
-    updated = format_listing(listing, lang)
+    updated = format_listing(listing)
     if updated != text:
         await sender.edit(message_id, updated)
     return message_id

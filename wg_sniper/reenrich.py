@@ -73,7 +73,7 @@ async def _amain(dry_run: bool) -> None:
             async with aiosqlite.connect(cfg.db_path) as db:
                 await dbmod.mark_enriched(db, listing)
 
-            text = format_listing(listing, state.lang)
+            text = format_listing(listing)
             ok = await sender.edit(tg_message_id, text)
             if ok:
                 log.info("updated ad_id=%s (msg %s): price %s -> %s",
