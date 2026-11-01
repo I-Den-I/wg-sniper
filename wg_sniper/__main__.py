@@ -12,7 +12,7 @@ import httpx
 from . import db as dbmod
 from .commands import build_dispatcher, run_bot
 from .config import load_config
-from .i18n import t
+from .messages import t
 from .imap_listener import run_listener
 from .notifier import make_bot, notify_plain, send_and_enrich, Sender
 from . import sources
@@ -42,7 +42,7 @@ async def _amain() -> None:
     async with aiosqlite.connect(cfg.db_path) as db:
         await dbmod.log_event(db, "startup", state.git_sha[:12])
 
-    await notify_plain(sender, t("startup_notice", state.lang, sha=state.git_sha[:7]))
+    await notify_plain(sender, t("startup_notice", sha=state.git_sha[:7]))
 
     http_client = httpx.AsyncClient(http2=True, timeout=15)
 
@@ -60,7 +60,7 @@ async def _amain() -> None:
             if state.paused:
                 break
             message_id = await send_and_enrich(
-                sender, http_client, listing, state.lang,
+                sender, http_client, listing,
                 on_enriched=persist_enrichment,
             )
             async with aiosqlite.connect(cfg.db_path) as db:
@@ -92,7 +92,7 @@ async def _amain() -> None:
                 log.info("skip send (paused): %s", listing.ad_id)
                 continue
             message_id = await send_and_enrich(
-                sender, http_client, listing, state.lang,
+                sender, http_client, listing,
                 on_enriched=persist_enrichment,
             )
             if message_id is None:
@@ -125,7 +125,7 @@ async def _amain() -> None:
                 await dbmod.log_event(db, "crash", err_summary[:500])
             await notify_plain(
                 sender,
-                t("crash_notice", state.lang, err=html.escape(err_summary[:200])),
+                t("crash_notice", err=html.escape(err_summary[:200])),
             )
         except Exception:
             log.exception("failed to send crash notice")

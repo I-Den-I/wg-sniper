@@ -1,5 +1,5 @@
 [Unit]
-Description=WG-Sniper: WG-Gesucht listing notifier
+Description=WG-Sniper: WG-Gesucht and Kleinanzeigen listing notifier
 After=network-online.target
 Wants=network-online.target
 
